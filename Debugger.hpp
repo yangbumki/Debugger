@@ -58,29 +58,107 @@ private:
 			ct.ContextFlags = CONTEXT_ALL;
 			if (!GetThreadContext(cpdi.hThread, &ct)) ErrorMessage("GetThradContext");
 
-			DWORD readByte = 0, readByte2 = 0;
-			BYTE bytes = 0;
-			ReadProcessMemory(cpdi.hProcess, (LPCVOID)(ct.Rsp + 0x8), &readByte, sizeof(DWORD), NULL);
-			printf_s("rsp + 8 : %p \n", readByte);
-			ReadProcessMemory(cpdi.hProcess, (LPVOID)(ct.Rsp + 0xC), &readByte2, sizeof(DWORD), NULL);
-			printf_s("rsp + c : %p \n", readByte2);
-			printf_s("r9 : %p \n", ct.R9);
-			int i = 0;
+			char* buffer = nullptr;
+			int bufferLen = 0;
 
-			while (TRUE) {
-				if (!ReadProcessMemory(cpdi.hProcess, (LPVOID)(ct.Rsp + i++), &bytes, sizeof(BYTE), NULL)) {
-					printf_s("ReadProcess!\n");
-						break;
-				};
-				if (bytes == NULL) {
-					break;
-				};
-				printf_s("%c \n", bytes);
+			bufferLen = (int)ct.R8;
+			buffer = new char[bufferLen+1];
+			memset(buffer, 0, bufferLen + 1);
+
+			if (!ReadProcessMemory(cpdi.hProcess, (LPCVOID)ct.Rdx, buffer, bufferLen, NULL)) {
+				printf_s("ReadProcAddress()\n");
+				return FALSE;
 			};
+
+			printf_s("Original String : %s \n", buffer);
+
+			for (int i = 0; i < bufferLen; i++) {
+				int parsingLen = 'a' - 'A';
+				if (buffer[i] > 'a' || buffer[i] < 'z') {
+					buffer[i] = buffer[i] - parsingLen;
+				};
+			};
+
+			printf_s("Parsing String : %s \n", buffer);
+
+			if(!WriteProcessMemory(cpdi.hProcess, (LPVOID)ct.Rdx, buffer, bufferLen, NULL))  {
+				printf_s("WriteProcessMemory");
+				return FALSE;
+			};
+			/*memset(buffer, 0, bufferLen + 1);
+			if(ReadProcessMemory(cpdi.hProcess, (LPVOID)ct.Rdx, buffer, bufferLen + 1, NULL)) printf_s("readprocess : %s \n", buffer);*/
+
+			free(buffer);
+
+
+			/*printf_s("Current RIP : %p \n", ct.Rip);
+			ct.Rip = (DWORD)this->debugFunc;
+
+			if (!SetThreadContext(cpdi.hThread, &ct)) { 
+				printf_s("SetThreadContext()\n"); 
+				return FALSE; 
+			};*/
+
+			this->dbgStatus = DBG_CONTINUE;
+
+			/*if (!ContinueDebugEvent(de->dwProcessId, de->dwThreadId, DBG_CONTINUE)) {
+				printf_s("ContinueDebugEvent() \n"); 
+				return FALSE; 
+			};*/
+
+			if (!WriteProcessMemory(cpdi.hProcess, (LPVOID)this->debugFunc, &this->originByte, sizeof(BYTE), NULL)) {
+				printf_s("WriteProcessMemory()\n"); 
+				return FALSE;
+			};
+
 		};
 
 		return TRUE;
 	};
+	// 32bit 버전 함수호출규약이 다름
+	/*BOOL OnExceptionDebugEvent2(LPDEBUG_EVENT de) {
+		CONTEXT ct;
+		PEXCEPTION_RECORD pr;
+		pr = &de->u.Exception.ExceptionRecord;
+
+		if (EXCEPTION_BREAKPOINT == pr->ExceptionCode) {
+			memset(&ct, 0, sizeof(CONTEXT));
+			ct.ContextFlags = CONTEXT_ALL;
+			if (!GetThreadContext(cpdi.hThread, &ct)) ErrorMessage("GetThradContext");
+
+			DWORD readByte = 0, readByte2 = 0;
+			ReadProcessMemory(cpdi.hProcess, (LPCVOID)(ct.Rsp + 0x8), &readByte, sizeof(DWORD), NULL);
+			ReadProcessMemory(cpdi.hProcess, (LPVOID)(ct.Rsp + 0xC), &readByte2, sizeof(DWORD), NULL);
+
+			PBYTE lpBuffer;
+			lpBuffer = (PBYTE)malloc(readByte2 + 1);
+			memset(lpBuffer, 0, readByte2 + 1);
+
+			ReadProcessMemory(cpdi.hProcess, (LPVOID)readByte, lpBuffer, readByte2, NULL);
+			printf_s("\n#### orginal string : %s \n", lpBuffer);
+
+			for (int i = 0; i < readByte2; i++) {
+				if (0x61 <= lpBuffer[i] && lpBuffer[i] <= 0x7A) {
+					lpBuffer[i] -= 0x20;
+				};
+			};
+
+			printf_s("\n### converted string: %s\n", lpBuffer);
+			WriteProcessMemory(cpdi.hProcess, (LPVOID)readByte, lpBuffer, readByte2, NULL);
+
+			free(lpBuffer);
+			ct.Rip = (DWORD)this->debugFunc;
+			SetThreadContext(cpdi.hThread, &ct);
+
+			ContinueDebugEvent(de->dwProcessId, de->dwThreadId, DBG_CONTINUE);
+			Sleep(0);
+
+			WriteProcessMemory(cpdi.hProcess, this->debugFunc, &this->originByte, sizeof(BYTE), NULL);
+			return TRUE;
+		};
+
+		return FALSE;
+	};*/
 
 	static DWORD WINAPI DebuggingThreadProc(LPVOID arg) {
 		DEBUGGER* db = (DEBUGGER*)arg;
@@ -105,8 +183,7 @@ private:
 						db->dbgStatus = DBG_EXCEPTION_NOT_HANDLED;
 						break;
 					};
-					if (!db->OnExceptionDebugEvent(&db->de)) db->ErrorMessage("OnExceptionDebugEvent()");
-					
+					if (!db->OnExceptionDebugEvent(&db->de)) db->ErrorMessage("OnExceptionDebugEvent()");				
 					break;
 				case EXIT_PROCESS_DEBUG_EVENT:
 					break;
